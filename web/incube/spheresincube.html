@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Densest Packing of Spheres in a Cube</title>
+<style>
+  body { background:#c0c0c0; font-family: Arial, Helvetica, sans-serif; margin: 12px; color:#000; }
+  h3 { margin: 0.4em 0 0.6em; }
+  #app { width: 100%; max-width: 600px; border: 1px solid #808080; background: #d4d0c8; box-sizing: border-box; }
+  #info { background:#c0c0c0; font: 12px/1.6 "Courier New", monospace; padding: 2px 6px; min-height: 1.6em; white-space: nowrap; overflow-x: auto; }
+  #cv { display:block; width:100%; aspect-ratio: 1 / 1; background:#fff; cursor: grab; touch-action: none; outline: none; }
+  #cv:focus { box-shadow: inset 0 0 0 2px #6a8cc7; }
+  #cv.dragging { cursor: grabbing; }
+  .bar { display:flex; flex-wrap: wrap; gap: 4px 6px; align-items:center; justify-content:center; padding: 5px 4px; background:#c0c0c0; font-size: 13px; }
+  .bar input[type=number] { width: 4.2em; }
+  .bar button, .bar select, .bar input { font-size: 13px; }
+  .bar label { white-space: nowrap; }
+  #symC { max-width: 15em; }
+  #msg { padding: 6px; color: #900; font-size: 13px; display:none; background:#fff3f3; }
+  #msg input { margin-top: 4px; }
+  #linkbox { display:none; padding: 4px 6px; background:#c0c0c0; }
+  #linkbox input { width: 100%; box-sizing: border-box; font: 12px monospace; }
+  .text { max-width: 640px; font-size: 14px; line-height: 1.4; }
+  kbd { background:#eee; border:1px solid #999; border-radius:3px; padding:0 3px; font-size: 12px; }
+</style>
+</head>
+<body>
+<h3>Densest Packing of Spheres in a Cube</h3>
+
+<div id="app">
+  <div id="info">loading data &hellip;</div>
+  <div id="msg"></div>
+  <canvas id="cv" tabindex="0" aria-label="3D view of the sphere packing"></canvas>
+  <div class="bar">
+    <input id="nField" type="number" min="1" value="1" title="number of spheres n">
+    <button id="okB" title="show packing for this n">apply</button>
+    <button id="allB" title="show all spheres">all</button>
+    <button id="plusB" title="add next sphere">(+)</button>
+    <button id="minusB" title="remove last sphere">(-)</button>
+    <select id="xyzC" title="point of view">
+      <option>+z</option><option>+y</option><option>+x</option>
+      <option>-z</option><option>-y</option><option>-x</option>
+    </select>
+    <button id="trB">transp.</button>
+    <label><input id="touchesCB" type="checkbox"> touches</label>
+  </div>
+  <div class="bar">
+    <select id="symC" title="symmetry groups"><option>(0 symmetries)</option></select>
+    <button id="symB" title="next symmetry operation">0</button>
+    <label title="keep rotation and zoom when spheres are added or removed"><input id="keepCB" type="checkbox"> keep view</label>
+    <button id="resetB" title="reset rotation and zoom">reset view</button>
+    <button id="linkB" title="show a link to the current view">link</button>
+  </div>
+  <div id="linkbox"><input id="linkF" readonly></div>
+</div>
+
+<div class="text">
+<p>
+Enter a number from 1 to 72 in the text field and press "apply" or hit [ENTER].
+You will see the first sphere of the packing (parallel projection). Then you
+can put next spheres with "(+)", remove last with "(-)" or all with "all". In the select box you
+can change the point of view. Attention, the spheres will come in a different order (from
+back to front). Selecting "touches" shows lines if a sphere is in touch with another sphere or the cube walls.
+<p>
+If symmetries are available you can select one. Show the different symmetry
+operations with the "0" button. White means the ball is mapped onto itself.
+Spheres of other colors are mapped (e.g. mirrored or rotated) onto
+another sphere of the same color.
+<p>
+You can rotate by mouse drag (or finger drag on touch screens), or by typing <kbd>x</kbd>, <kbd>y</kbd>, <kbd>z</kbd>.
+<kbd>+</kbd> and <kbd>-</kbd> or the mouse wheel zoom in or out. You can also use the arrow keys. <kbd>Ctrl</kbd> is finer,
+<kbd>Shift</kbd> changes direction. Click on the picture first to give it the keyboard focus.
+"keep view" keeps rotation and zoom while spheres are added or removed; "link" (or key <kbd>p</kbd>)
+shows a URL that reproduces the current view.
+<p>
+All data were calculated by <a href="https://www.pfoertner.org/">Hugo Pfoertner</a>.
+Mathematical questions please to him. (For all packings with n&gt;10 there are no proofs of optimality.)
+<p>
+Links to the data:
+<a href="sequences.txt">coordinates</a>,
+<a href="sphincubsyms.txt">symmetry groups</a>.
+See also Hugo's <a href="https://www.randomwalk.de/sphere/incube/">Densest Packings of Equal Spheres in a Cube</a>
+and <a href="../insphr/spheresinsphr.html">Densest Packing of Spheres in a Sphere</a>.
+<p>
+<small>Original Java applet (2005) by Martin Erren; re-implemented in JavaScript (HTML5 canvas) in 2026 so that it runs
+in current browsers without Java. The original applet and its sources are in <a href="SpherePacking.zip">SpherePacking.zip</a>.</small>
+
+</div>
+
+<script>
+"use strict";
+const CONFIG = {"inSphere": false, "sequences": "sequences.txt", "syms": "sphincubsyms.txt", "eps": 0.001};
+
+(function () {
+  // ---------------------------------------------------------------- helpers
+  function javaHSBtoRGB(hue, sat, bri) {       // exact port of java.awt.Color.HSBtoRGB
+    let r = 0, g = 0, b = 0;
+    if (sat === 0) { r = g = b = Math.trunc(bri * 255 + 0.5); }
+    else {
+      const h = (hue - Math.floor(hue)) * 6.0, f = h - Math.floor(h);
+      const p = bri * (1 - sat), q = bri * (1 - sat * f), t = bri * (1 - sat * (1 - f));
+      const c = x => Math.trunc(x * 255 + 0.5);
+      switch (Math.trunc(h)) {
+        case 0: r = c(bri); g = c(t); b = c(p); break;
+        case 1: r = c(q); g = c(bri); b = c(p); break;
+        case 2: r = c(p); g = c(bri); b = c(t); break;
+        case 3: r = c(p); g = c(q); b = c(bri); break;
+        case 4: r = c(t); g = c(p); b = c(bri); break;
+        case 5: r = c(bri); g = c(p); b = c(q); break;
+      }
+    }
+    return [r, g, b];
+  }
+  const splitLines = t => t.split(/\r?\n/);
+  const cmpCoords = (a, b) => (a[2] - b[2]) || (a[1] - b[1]) || (a[0] - b[0]);  // back to front
+
+  // ------------------------------------------------------------ data parsing
+  function parseSequences(text) {
+    const lines = splitLines(text);
+    let i = 0, confs = null;
+    for (; i < lines.length; i++) {            // block 1: maxN
+      const l = lines[i].trim();
+      if (l === "--") { i++; break; }
+      if (l.length) confs = new Array(parseInt(l, 10));
+    }
+    for (; i < lines.length; i++) {            // block 2: n radius requiredVolume density
+      const l = lines[i].trim();
+      if (l === "--") { i++; break; }
+      if (!l.length) continue;
+      const t = l.split(/\s+/);
+      const n = parseInt(t[0], 10);
+      confs[n - 1] = { n, radius: parseFloat(t[1]), requiredVolume: t[2], density: t[3], coords: [], symlist: [] };
+    }
+    let n = 0;                                  // block 3: coordinates
+    for (; i < lines.length; i++) {
+      const l = lines[i].trim();
+      if (l === "--") break;
+      if (!l.length) continue;
+      const t = l.split(/\s+/);
+      if (n === 0) { n = parseInt(t[0], 10); continue; }
+      const p = parseInt(t[0], 10);
+      const c = confs[n - 1];
+      if (!c) { n = 0; continue; }
+      c.coords[p - 1] = [parseFloat(t[1]), parseFloat(t[2]), parseFloat(t[3]), p];
+      if (p === n) n = 0;
+    }
+    return confs.filter(Boolean).length ? confs : null;
+  }
+
+  function parseSymmetries(text, confs) {
+    const lines = splitLines(text);
+    let i = 0;
+    while (i < lines.length) {
+      let line = lines[i++];
+      if (!line.startsWith(" ")) continue;
+      const t = line.trim().split(/\s+/);       // " 0.001   N=   4"
+      const eps = parseFloat(t[0]);
+      const n = parseInt(t[t.length - 1], 10);
+      if (!(n > 0) || !confs[n - 1]) continue;
+      const sym = { eps, description: "?", oplist: [] };
+      while (i < lines.length) {
+        line = lines[i++].trim();
+        if (line.length > 0 && line[0] === "(" && line[line.length - 1] === ")") {
+          const cycles = line.substring(1, line.length - 1).split(")(");
+          if (cycles.length < n) {              // skip the identity
+            let col = 1;
+            const oa = new Array(n + 1).fill(0);
+            for (const cyc of cycles) {
+              const idx = cyc.trim().split(/\s+/).map(Number);
+              if (idx.length === 1) oa[idx[0] - 1] = 0;
+              else { for (const k of idx) oa[k - 1] = col; col++; }
+            }
+            oa[n] = col;                        // number of colors (as in the applet)
+            sym.oplist.push(oa);
+          }
+        } else {
+          if (line.length > 0) sym.description = line;
+          confs[n - 1].symlist.push(sym);
+          break;
+        }
+      }
+    }
+  }
+
+  // ------------------------------------------------------------ geometry
+  const CUBE = [[-1,-1,-1],[-1,-1,1],[-1,1,-1],[-1,1,1],[1,-1,-1],[1,-1,1],[1,1,-1],[1,1,1]];
+  const CUBE_NB = [[1,2,4],[0,3,5],[0,3,6],[1,2,7],[0,5,6],[1,4,7],[2,4,7],[3,5,6]];
+  const I3 = () => [[1,0,0],[0,1,0],[0,0,1]];
+  const mul = (A, B) => A.map((r, i) => [0,1,2].map(j => A[i][0]*B[0][j] + A[i][1]*B[1][j] + A[i][2]*B[2][j]));
+  const apply = (M, v) => [M[0][0]*v[0]+M[0][1]*v[1]+M[0][2]*v[2], M[1][0]*v[0]+M[1][1]*v[1]+M[1][2]*v[2], M[2][0]*v[0]+M[2][1]*v[1]+M[2][2]*v[2]];
+  function rotXYZ(ax, ay, az) {                  // same order as the applet: about x, then y, then z
+    let M = I3();
+    if (ax) { const c = Math.cos(ax), s = Math.sin(ax); M = mul([[1,0,0],[0,c,-s],[0,s,c]], M); }
+    if (ay) { const c = Math.cos(ay), s = Math.sin(ay); M = mul([[c,0,s],[0,1,0],[-s,0,c]], M); }
+    if (az) { const c = Math.cos(az), s = Math.sin(az); M = mul([[c,-s,0],[s,c,0],[0,0,1]], M); }
+    return M;
+  }
+  function permute(v, si, sgn) {                // point of view (+z,+y,+x,-z,-y,-x)
+    if (si === 0) return [v[0]*sgn, v[1]*sgn, v[2]*sgn];
+    if (si === 1) return [v[1]*sgn, v[2]*sgn, v[0]*sgn];
+    return [v[2]*sgn, v[0]*sgn, v[1]*sgn];
+  }
+
+  // ------------------------------------------------------------ state
+  const S = {
+    confs: null, n: 1, p: 1, xyz: 0, s: 0, op: 0,
+    transparent: false, touches: false, keep: false,
+    R: I3(), angle: [0, 0, 0], zoomf: 1.0, moved: false,
+    visible: new Set(),
+  };
+  const EPS = (() => { const e = parseFloat(new URLSearchParams(location.search).get("eps")); return e > 0 ? e : CONFIG.eps; })();  // contact tolerance, ?eps= overrides
+
+  const $ = id => document.getElementById(id);
+  const cv = $("cv"), ctx = cv.getContext("2d");
+  const infoL = $("info"), nField = $("nField"), xyzC = $("xyzC"), trB = $("trB"), touchesCB = $("touchesCB");
+  const symC = $("symC"), symB = $("symB"), plusB = $("plusB"), minusB = $("minusB"), allB = $("allB"), keepCB = $("keepCB");
+
+  const conf = () => S.confs[S.n - 1];
+
+  function setXYZ(xyz) {
+    S.xyz = ((xyz % 6) + 6) % 6;
+    const si = S.xyz % 3, sgn = S.xyz > 2 ? -1 : 1;
+    const base = conf().coords.map(c => [...permute(c, si, sgn), c[3]]);
+    base.sort(cmpCoords);
+    S.visible = new Set(base.slice(0, S.p).map(c => c[3]));   // the p rear-most spheres
+    if (!S.keep) resetView();
+  }
+  function resetView() { S.R = I3(); S.angle = [0, 0, 0]; S.zoomf = 1.0; S.moved = false; }
+  function setN(n) {
+    n = Math.max(1, Math.min(S.confs.length, n | 0));
+    while (n > 1 && !S.confs[n - 1]) n--;
+    S.n = n; S.p = 1; S.s = 0; S.op = 0;
+    setXYZ(S.xyz);
+  }
+  function setP(p) { if (p > 0 && p <= S.n) { S.p = p; setXYZ(S.xyz); } }
+  function setS(s) { S.s = (s > conf().symlist.length || s < 0) ? 0 : s; S.op = 0; }
+  function setOp(op) {
+    if (S.s < 1) return;
+    S.op = op > conf().symlist[S.s - 1].oplist.length ? 0 : Math.max(0, op);
+  }
+  function rotateDeg(ax, ay, az) {
+    S.angle = [(S.angle[0] + ax + 360) % 360, (S.angle[1] + ay + 360) % 360, (S.angle[2] + az + 360) % 360];
+    S.R = mul(rotXYZ(ax * Math.PI / 180, ay * Math.PI / 180, az * Math.PI / 180), S.R);
+    S.moved = true;
+  }
+
+  // ------------------------------------------------------------ sprites
+  const spriteCache = new Map();
+  function sprite(r, rgb) {
+    const key = r + "|" + rgb.join(",") + "|" + S.transparent;
+    let c = spriteCache.get(key);
+    if (c) return c;
+    if (spriteCache.size > 400) spriteCache.clear();
+    const lqx = -1, lqy = -1.5, lqz = 2, wlq = Math.sqrt(lqx*lqx + lqy*lqy + lqz*lqz);
+    const size = 2 * r + 1;
+    c = document.createElement("canvas"); c.width = c.height = size;
+    const g = c.getContext("2d"), img = g.createImageData(size, size), d = img.data;
+    const alpha = S.transparent ? 0x7F : 0xFF, r2 = r * r;
+    for (let y = -r; y <= r; y++) for (let x = -r; x <= r; x++) {
+      if (x*x + y*y > r2) continue;
+      let w = (x*lqx + y*lqy + Math.sqrt(r2 - x*x - y*y) * lqz) / r / wlq;
+      const o = ((y + r) * size + (x + r)) * 4;
+      if (w > 0.999) { d[o] = d[o+1] = d[o+2] = 255; d[o+3] = 255; }       // highlight
+      else {
+        if (w < 0.4) w = 0.4;                                               // diffuse
+        d[o] = Math.trunc(rgb[0]*w); d[o+1] = Math.trunc(rgb[1]*w); d[o+2] = Math.trunc(rgb[2]*w); d[o+3] = alpha;
+      }
+    }
+    g.putImageData(img, 0, 0);
+    spriteCache.set(key, c);
+    return c;
+  }
+  function sphereColor(oi) {
+    const n = S.n;
+    if (S.s > 0) {
+      if (S.op === 0) return [255, 255, 255];
+      const oa = conf().symlist[S.s - 1].oplist[S.op - 1];
+      const i = oa[oi - 1], nn = oa[n];
+      if (i === 0) return [255, 255, 255];
+      return javaHSBtoRGB((i - 1) / (nn - 1), 1 - (i % 3) / 3, 1);
+    }
+    return javaHSBtoRGB((oi - 1) / n, 1, 1);
+  }
+
+  // ------------------------------------------------------------ drawing
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    const css = cv.clientWidth || 500;
+    const w = Math.round(css * dpr);
+    if (cv.width !== w || cv.height !== w) { cv.width = w; cv.height = w; }
+    const zf = S.zoomf;
+    const sx = v => (v[0] * zf + 1) * w / 2, sy = v => w - (v[1] * zf + 1) * w / 2;
+    const lw = Math.max(1, Math.round(dpr));
+    ctx.lineWidth = lw;
+    const line = (x1, y1, x2, y2) => { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); };
+
+    const c = conf();
+    const si = S.xyz % 3, sgn = S.xyz > 2 ? -1 : 1;
+    const pts = c.coords.map(v => [...apply(S.R, permute(v, si, sgn)), v[3]]).sort(cmpCoords);
+    const corners = CUBE.map((v, i) => [...apply(S.R, v), i]);
+    const cornersSorted = corners.slice().sort(cmpCoords);
+    const radius = c.radius;
+    const r = Math.max(1, Math.trunc(radius * w * zf / 2));
+
+    // background
+    if (CONFIG.inSphere) {
+      ctx.fillStyle = "#c0c0c0"; ctx.fillRect(0, 0, w, w);
+      ctx.fillStyle = "#ffffff"; ctx.beginPath(); ctx.arc(w / 2, w / 2, zf * w / 2, 0, 2 * Math.PI); ctx.fill();
+    } else {
+      ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, w, w);
+    }
+    ctx.strokeStyle = "#c0c0c0";
+    const greatCircles = (front) => {       // three great circles of the container sphere
+      const axes = [apply(S.R, [1,0,0]), apply(S.R, [0,1,0]), apply(S.R, [0,0,1])];
+      for (const [a, b] of [[0,1],[1,2],[2,0]]) {
+        const A = axes[a], B = axes[b];
+        let prev = A;
+        for (let k = 1; k <= 96; k++) {
+          const t = 2 * Math.PI * k / 96, ct = Math.cos(t), st = Math.sin(t);
+          const P = [A[0]*ct + B[0]*st, A[1]*ct + B[1]*st, A[2]*ct + B[2]*st];
+          const zm = (P[2] + prev[2]) / 2;
+          if ((front && zm >= 0) || (!front && zm <= 0)) line(sx(prev), sy(prev), sx(P), sy(P));
+          prev = P;
+        }
+      }
+    };
+    const cubeEdges = (from, to) => {
+      for (let i = from; i < to; i++) {
+        const e0 = cornersSorted[i];
+        for (const j of CUBE_NB[e0[3]]) { const e1 = corners[j]; line(sx(e0), sy(e0), sx(e1), sy(e1)); }
+      }
+    };
+    if (CONFIG.inSphere) greatCircles(false);
+    else if (!S.moved) {                    // raster
+      for (let x = 1; x < 21; x++) {
+        const q = Math.round(x * w / 20) - 0.5;
+        line(0, q, w, q); line(q, 0, q, w);
+      }
+    } else cubeEdges(0, 7);
+
+    // spheres, back to front
+    const fontPx = Math.max(9, Math.round(11 * dpr));
+    ctx.font = fontPx + "px Arial, Helvetica, sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    const black = S.transparent ? "rgba(0,0,0,0.5)" : "#000";
+    const gray = S.transparent ? "rgba(192,192,192,0.5)" : "#c0c0c0";
+    for (let q = 0; q < pts.length; q++) {
+      const P = pts[q], oi = P[3];
+      if (!S.visible.has(oi)) continue;
+      const xx = Math.trunc(sx(P)), yy = Math.trunc(sy(P));
+      ctx.drawImage(sprite(r, sphereColor(oi)), xx - r, yy - r);
+      if (S.touches) {
+        ctx.strokeStyle = black;
+        if (CONFIG.inSphere) {
+          const d = Math.hypot(P[0], P[1], P[2]);
+          if (d > 0 && Math.abs(1 - d - radius) < EPS) {
+            const W = [P[0] / d, P[1] / d, P[2] / d];
+            line(xx, yy, sx(W), sy(W));
+          }
+        } else {
+          // contact with the six cube faces (planes through corner 0 and corner 7)
+          for (const [pi, nbs] of [[0, CUBE_NB[0]], [7, CUBE_NB[7]]]) {
+            const pv = corners[pi];
+            for (const ni of nbs) {
+              const nv = [corners[ni][0] - pv[0], corners[ni][1] - pv[1], corners[ni][2] - pv[2]];
+              const pq_n = (P[0]-pv[0])*nv[0] + (P[1]-pv[1])*nv[1] + (P[2]-pv[2])*nv[2];
+              if (Math.abs(Math.abs(pq_n) / 2 - radius) < EPS) {
+                const a = pq_n / 4;
+                const W = [P[0] - a*nv[0], P[1] - a*nv[1], P[2] - a*nv[2]];
+                line(xx, yy, sx(W), sy(W));
+              }
+            }
+          }
+        }
+        ctx.strokeStyle = gray;
+        for (let qq = q - 1; qq >= 0; qq--) {
+          const Q = pts[qq];
+          if (!S.visible.has(Q[3])) continue;
+          const d = Math.hypot(P[0]-Q[0], P[1]-Q[1], P[2]-Q[2]);
+          if (d - 2 * radius < EPS) line(xx, yy, Math.trunc(sx(Q)), Math.trunc(sy(Q)));
+        }
+      }
+      ctx.fillStyle = black;
+      ctx.fillText(String(oi), xx, yy + 0.5);
+    }
+
+    ctx.strokeStyle = "#c0c0c0";
+    if (CONFIG.inSphere) greatCircles(true);
+    else if (S.moved) cubeEdges(7, 8);
+  }
+
+  let pending = false;
+  function repaint() { if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; draw(); }); } }
+
+  // ------------------------------------------------------------ UI
+  function updateInfoLabel() {
+    const c = conf();
+    let t = "n:" + S.n + " p:" + S.p + " radius:" + c.radius + " required volume:" + c.requiredVolume + " density:" + c.density;
+    if (c.symlist.length > 0 && S.s > 0) t += " eps:" + c.symlist[S.s - 1].eps;
+    infoL.textContent = t;
+  }
+  function updatePanel() {
+    const c = conf(), k = c.symlist.length;
+    symC.innerHTML = "";
+    const o0 = document.createElement("option");
+    o0.textContent = "(" + k + " symmetr" + (k === 1 ? "y" : "ies") + ")"; symC.appendChild(o0);
+    for (const sym of c.symlist) { const o = document.createElement("option"); o.textContent = sym.description; symC.appendChild(o); }
+    symC.selectedIndex = S.s; symC.disabled = k === 0;
+    symB.textContent = String(S.op); symB.disabled = !(S.s > 0);
+    plusB.disabled = !(S.p < S.n); minusB.disabled = !(S.p > 1); allB.disabled = !(S.p < S.n);
+    nField.value = S.n; nField.max = S.confs.length;
+    trB.textContent = S.transparent ? "opaque" : "transp.";
+    touchesCB.checked = S.touches; keepCB.checked = S.keep;
+    xyzC.selectedIndex = S.xyz;
+    if ($("linkbox").style.display === "block") $("linkF").value = permalink();
+  }
+  function refresh() { updatePanel(); updateInfoLabel(); repaint(); }
+
+  function applyN() { setN(parseInt(nField.value, 10) || 1); refresh(); }
+  $("okB").onclick = applyN;
+  nField.addEventListener("keydown", e => { if (e.key === "Enter") applyN(); });
+  allB.onclick = () => { setP(S.n); refresh(); };
+  plusB.onclick = () => { setP(S.p + 1); refresh(); };
+  minusB.onclick = () => { setP(S.p - 1); refresh(); };
+  xyzC.onchange = () => { const k = S.keep; S.keep = false; setXYZ(xyzC.selectedIndex); S.keep = k; refresh(); };
+  trB.onclick = () => { S.transparent = !S.transparent; refresh(); };
+  touchesCB.onchange = () => { S.touches = touchesCB.checked; refresh(); };
+  keepCB.onchange = () => { S.keep = keepCB.checked; refresh(); };
+  symC.onchange = () => { setS(symC.selectedIndex); refresh(); };
+  symB.onclick = () => { setOp(S.op + 1); refresh(); };
+  $("resetB").onclick = () => { resetView(); refresh(); };
+  $("linkB").onclick = () => {
+    const box = $("linkbox"), show = box.style.display !== "block";
+    box.style.display = show ? "block" : "none";
+    if (show) { $("linkF").value = permalink(); $("linkF").select(); }
+  };
+
+  // mouse / touch rotation (1 degree per pixel, like the applet)
+  let last = null;
+  cv.addEventListener("pointerdown", e => { cv.focus(); last = [e.clientX, e.clientY]; cv.setPointerCapture(e.pointerId); cv.classList.add("dragging"); });
+  cv.addEventListener("pointermove", e => {
+    if (!last) return;
+    const ax = Math.round(e.clientY - last[1]), ay = Math.round(e.clientX - last[0]);
+    if (ax || ay) { rotateDeg(ax, ay, 0); last = [last[0] + ay, last[1] + ax]; repaint(); }
+  });
+  const endDrag = () => { last = null; cv.classList.remove("dragging"); };
+  cv.addEventListener("pointerup", endDrag); cv.addEventListener("pointercancel", endDrag);
+  cv.addEventListener("wheel", e => {
+    e.preventDefault();
+    const f = e.ctrlKey ? 5 : 1;
+    if (e.deltaY < 0) S.zoomf *= 1 + 0.125 / f; else S.zoomf /= 1 + 0.125 / f;
+    S.moved = true; repaint();
+  }, { passive: false });
+
+  // keyboard, same keys as the applet
+  cv.addEventListener("keydown", e => {
+    const f = e.ctrlKey ? 5 : 1, s = e.shiftKey ? -1 : 1, st = Math.trunc(5 * s / f);
+    const k = e.key.toLowerCase(), code = e.code;
+    let handled = true;
+    if (k === "-" || k === "_" || code === "NumpadSubtract") { S.zoomf /= 1 + 0.125 / f; S.moved = true; }
+    else if (k === "+" || k === "=" || code === "NumpadAdd") { S.zoomf *= 1 + 0.125 / f; S.moved = true; }
+    else if (k === "x") rotateDeg(st, 0, 0);
+    else if (k === "y") rotateDeg(0, st, 0);
+    else if (k === "z") rotateDeg(0, 0, st);
+    else if (k === "arrowdown" || code === "Numpad2" || code === "Digit2") rotateDeg(st, 0, 0);
+    else if (k === "arrowup" || code === "Numpad8" || code === "Digit8") rotateDeg(-st, 0, 0);
+    else if (k === "arrowright" || code === "Numpad6" || code === "Digit6") rotateDeg(0, st, 0);
+    else if (k === "arrowleft" || code === "Numpad4" || code === "Digit4") rotateDeg(0, -st, 0);
+    else if (k === "clear" || code === "Numpad5" || code === "Digit5") rotateDeg(0, 0, st);
+    else if (k === "p") { $("linkB").click(); }
+    else handled = false;
+    if (handled) { e.preventDefault(); if (k !== "p") repaint(); }
+  });
+  window.addEventListener("resize", repaint);
+
+  // ------------------------------------------------------------ URL parameters (compatible with the applet)
+  function permalink() {
+    const q = new URLSearchParams();
+    q.set("n", S.n); q.set("p", S.p); q.set("xyz", S.xyz); q.set("s", S.s); q.set("op", S.op);
+    if (S.transparent) q.set("tr", "true");
+    if (S.touches) q.set("tc", "true");
+    if (S.moved) {
+      q.set("ax", S.angle[0]); q.set("ay", S.angle[1]); q.set("az", S.angle[2]); q.set("zf", +S.zoomf.toFixed(6));
+      q.set("rm", S.R.flat().map(x => +x.toFixed(6)).join(","));
+    }
+    return location.origin + location.pathname + "?" + q.toString();
+  }
+  function setParameters(search) {
+    const q = new URLSearchParams(search);
+    const gi = (k, d) => { const v = parseInt(q.get(k), 10); return isNaN(v) ? d : v; };
+    S.n = 1; setN(gi("n", 1));
+    S.p = Math.max(1, Math.min(S.n, gi("p", 1)));
+    S.transparent = q.get("tr") === "true"; S.touches = q.get("tc") === "true";
+    S.keep = false; setXYZ(Math.abs(gi("xyz", 0)) % 6);
+    setS(gi("s", 0)); setOp(gi("op", 0));
+    const zf = parseFloat(q.get("zf"));
+    const rm = (q.get("rm") || "").split(",").map(Number);
+    if (rm.length === 9 && rm.every(isFinite)) {
+      S.R = [rm.slice(0, 3), rm.slice(3, 6), rm.slice(6, 9)]; S.moved = true;
+      S.angle = [gi("ax", 0), gi("ay", 0), gi("az", 0)];
+    } else if (q.has("ax") || q.has("ay") || q.has("az")) rotateDeg(gi("ax", 0), gi("ay", 0), gi("az", 0));
+    if (!isNaN(zf)) { S.zoomf = zf; S.moved = true; }
+  }
+
+  // ------------------------------------------------------------ start
+  function start(seqText, symText) {
+    const confs = parseSequences(seqText);
+    if (!confs) throw new Error("coordinate file could not be parsed");
+    if (symText) parseSymmetries(symText, confs);
+    S.confs = confs;
+    $("msg").style.display = "none";
+    setParameters(location.search);
+    refresh();
+  }
+
+  async function load() {
+    const q = new URLSearchParams(location.search);
+    const seqUrl = q.get("sequences") || CONFIG.sequences, symUrl = q.get("syms") || CONFIG.syms;
+    try {
+      const seq = await fetch(seqUrl).then(r => { if (!r.ok) throw new Error(seqUrl + ": HTTP " + r.status); return r.text(); });
+      let sym = "";
+      try { sym = await fetch(symUrl).then(r => r.ok ? r.text() : ""); } catch (e) { /* symmetries are optional */ }
+      start(seq, sym);
+    } catch (err) {
+      infoL.textContent = "data not loaded";
+      const m = $("msg");
+      m.style.display = "block";
+      m.innerHTML = "Could not load the data files (" + String(err.message || err).replace(/</g, "&lt;") + ").<br>" +
+        "If you opened this page directly from disk, select the two data files here " +
+        "(<code>" + CONFIG.sequences + "</code> and <code>" + CONFIG.syms + "</code>):<br>" +
+        "<input type='file' id='fileIn' multiple accept='.txt'>";
+      $("fileIn").onchange = async ev => {
+        let seq = "", sym = "";
+        for (const f of ev.target.files) { const t = await f.text(); if (/^\s*\d+\s*\r?\n\s*--/.test(t)) seq = t; else sym = t; }
+        try { if (seq) start(seq, sym); } catch (e2) { m.textContent = String(e2); }
+      };
+    }
+  }
+  load();
+})();
+</script>
+</body>
+</html>
